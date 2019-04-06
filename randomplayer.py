@@ -1,4 +1,7 @@
+from pypokerengine.engine.card import Card
+from pypokerengine.engine.player import Player
 from pypokerengine.players import BasePokerPlayer
+from pypokerengine.utils import card_utils
 import random as rand
 import pprint
 
@@ -14,13 +17,48 @@ class RandomPlayer(BasePokerPlayer):
     #print("------------VALID_ACTIONS----------")
     #pp.pprint(valid_actions)
     #print("-------------------------------")
-    r = rand.random()
-    if r <= 0.5:
+    real_hole_card = []
+    real_community_card = []
+
+    for card in hole_card:
+      real_card = Card.from_str(card)
+      real_hole_card.append(real_card)
+
+    for card in round_state["community_card"]:
+      real_card = Card.from_str(card)
+      real_community_card.append(real_card)
+
+    win_rate = card_utils.estimate_hole_card_win_rate(1000, 2, real_hole_card, real_community_card)
+
+    histories = round_state["action_histories"]
+
+    cost = 0
+    for turn in histories:
+      for action in histories[turn]:
+        if action["uuid"] == self.uuid:
+          cost += action["amount"]
+
+    pot = round_state["pot"]["main"]["amount"];
+
+    raise_payoff = (pot-cost*2+20) * win_rate - (pot-cost*2+20) * (1-win_rate);
+    call_payoff = (pot-cost*2) * win_rate - (pot-cost*2) * (1-win_rate);
+    fold_payoff = -1 * cost * 0.5;
+
+    if len(valid_actions) == 3:
+      if raise_payoff >= call_payoff:
+        if fold_payoff > raise_payoff:
+          call_action_info = valid_actions[0]
+        else:
+          call_action_info = valid_actions[2]
+      elif call_payoff >= fold_payoff:
+        call_action_info = valid_actions[1]
+      else:
+        call_action_info = valid_actions[0]
+    elif call_payoff >= fold_payoff:
       call_action_info = valid_actions[1]
-    elif r<= 0.9 and len(valid_actions ) == 3:
-      call_action_info = valid_actions[2]
     else:
       call_action_info = valid_actions[0]
+
     action = call_action_info["action"]
     return action  # action returned here is sent to the poker engine
 

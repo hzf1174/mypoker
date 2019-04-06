@@ -57,14 +57,27 @@ class Group36Player(BasePokerPlayer):
     tuple_info_call = self.tuple_action(info, "call")
     tuple_info_raise = self.tuple_action(info, "raise")
     tuple_info_fold = self.tuple_action(info, "fold")
+    tuple_info_if_fold = list(info)
+    round = round_state["street"]
+    if round == "preflop":
+      tuple_info_if_fold[2] = tuple_info_if_fold[2] * 4 + 3
+    elif round == "flop":
+      tuple_info_if_fold[3] = tuple_info_if_fold[3] * 4 + 3
+    elif round == "turn":
+      tuple_info_if_fold[4] = tuple_info_if_fold[4] * 4 + 3
+    else:
+      tuple_info_if_fold[5] = tuple_info_if_fold[5] * 4 + 3
 
-    print tuple_info
+    tuple_info_if_fold = tuple(tuple_info_if_fold)
+
+    #print tuple_info
 
     cost = self.calculate_costs(histories)
-    print cost
+    #print cost
 
     if not self.CF_value.has_key(tuple_info):
       self.CF_value[tuple_info] = 0
+      self.CF_value[tuple_info_if_fold] = -cost
       self.regret[tuple_info_raise] = 0
       self.regret[tuple_info_fold] = 0
       self.regret[tuple_info_call] = 0
@@ -96,10 +109,11 @@ class Group36Player(BasePokerPlayer):
     return action  # action returned here is sent to the poker engine
 
   def receive_game_start_message(self, game_info):
-    self.game_num += 1
-    self.total_contribution = 1.0
+    pass
 
   def receive_round_start_message(self, round_count, hole_card, seats):
+    self.game_num += 1
+    self.total_contribution = 1.0
     print hole_card
     for card in hole_card:
       real_card = Card.from_str(card)
@@ -112,7 +126,7 @@ class Group36Player(BasePokerPlayer):
       real_card = Card.from_str(card)
       real_community_card.append(real_card)
 
-    win_rate = card_utils.estimate_hole_card_win_rate(1000, 2, self.real_hole_card, real_community_card)
+    win_rate = card_utils.estimate_hole_card_win_rate(2000, 2, self.real_hole_card, real_community_card)
     print win_rate
     if round_state["street"] == "preflop":
       card_strength = self.calculate_card_strength(win_rate, True)
@@ -140,9 +154,7 @@ class Group36Player(BasePokerPlayer):
     else:
       payoff = -cost
 
-    print cost
-    pp = pprint.PrettyPrinter(indent=2)
-    pp.pprint(histories)
+    #print cost
 
     if not self.sum.has_key(tuple_info):
       self.sum[tuple_info] = payoff
@@ -151,21 +163,32 @@ class Group36Player(BasePokerPlayer):
 
     self.CF_value[tuple_info] = self.sum[tuple_info] / (self.total_contribution * self.game_num)
 
-    is_me = round_state["seats"][round_state["next_player"]]["uuid"] != self.uuid
     last_CF_value = self.CF_value[tuple_info]
+    last_card = info[1]
+    check_list = [0, 0, 0, 0]
+    for i in range(3, 6):
+      if info[i] != 0:
+        check_list[i - 3] = -1
 
-    while True:
-      for i in range (5, 1, -1):
+    #print check_list
+    #print last_CF_value
+    #print self.total_contribution , self.game_num
+    #print info
+    while info[2] != 0:
+      for i in range(5, 1, -1):
+        if info[i] == 0:
+          continue
         last_action = info[i] % 4
         info[i] = (info[i] - last_action) / 4
-        print info
+        #print info
 
         tuple_info = tuple(info)
 
         tuple_info_call = self.tuple_action(info, "call")
-
         info_if_call = list(info)
         info_if_call[i] = info_if_call[i] * 4 + 1
+        if check_list[i - 2] == -1:
+          info_if_call[1] = last_card
         tuple_info_if_call = tuple(info_if_call)
         if not self.CF_value.has_key(tuple_info_if_call):
           self.CF_value[tuple_info_if_call] = 0
@@ -184,13 +207,18 @@ class Group36Player(BasePokerPlayer):
         if not self.CF_value.has_key(tuple_info_if_fold):
           self.CF_value[tuple_info_if_fold] = 0
 
-        if not is_me:
+        if not self.is_me(i, info[i], histories):
           self.CF_value[tuple_info] = last_CF_value
-          is_me = not is_me
+          #print last_CF_value
         else:
-          self.CF_value[tuple_info] = (self.CF_value[tuple_info_if_raise] * self.strategy[tuple_info_raise] +
-                                       self.CF_value[tuple_info_if_call] * self.strategy[tuple_info_call] +
-                                       self.CF_value[tuple_info_if_fold] * self.strategy[tuple_info_fold])
+          self.CF_value[tuple_info] = (self.CF_value[tuple_info_if_raise] *
+                                       self.strategy[tuple_info_raise] +
+                                       self.CF_value[tuple_info_if_call] *
+                                       self.strategy[tuple_info_call] +
+                                       self.CF_value[tuple_info_if_fold] *
+                                       self.strategy[tuple_info_fold])
+          last_CF_value = self.CF_value[tuple_info]
+          #print last_CF_value
           self.regret[tuple_info_raise] += self.CF_value[tuple_info_if_raise] - self.CF_value[tuple_info]
           self.regret[tuple_info_call] += self.CF_value[tuple_info_if_call] - self.CF_value[tuple_info]
           self.regret[tuple_info_fold] += self.CF_value[tuple_info_if_fold] - self.CF_value[tuple_info]
@@ -199,19 +227,21 @@ class Group36Player(BasePokerPlayer):
             self.strategy[tuple_info_call] = strategies[0]
             self.strategy[tuple_info_fold] = strategies[1]
           else:
-            strategies = self.regret_matching([self.regret[tuple_info_call], self.regret[tuple_info_fold]],
-                                              self.regret[tuple_info_raise])
+            strategies = self.regret_matching([self.regret[tuple_info_call], self.regret[tuple_info_fold],
+                                              self.regret[tuple_info_raise]])
             self.strategy[tuple_info_call] = strategies[0]
             self.strategy[tuple_info_fold] = strategies[1]
             self.strategy[tuple_info_raise] = strategies[2]
-          is_me = not is_me
-          last_CF_value = self.CF_value[tuple_info]
-          break
-        if info[2] == 0:
-          break
+        if check_list[i - 2] == -1:
+          check_list[i - 2] = 0
+        if info[i] == 0:
+          last_card = info[1]
+          info[1] = info[1] / 6
+        break
 
-      self.card_strength_squared = []
-      self.real_hole_card = []
+    self.card_strength_squared = []
+    self.real_hole_card = []
+    self.learn()
 
   def calculate_card_strength(self, win_rate, flag):
     if flag:
@@ -231,7 +261,7 @@ class Group36Player(BasePokerPlayer):
     for turn in histories:
       amount = 0
       for action in histories[turn]:
-        if action["uuid"] == self.uuid and action["amount"] > amount:
+        if action["uuid"] == self.uuid and action.has_key("amount") and action["amount"] > amount:
           amount = action["amount"]
       cost+= amount
 
@@ -264,12 +294,17 @@ class Group36Player(BasePokerPlayer):
     strategies = []
     min_regret = regrets[0]
     sum_regret = 0
+    #print regrets
     for i in range(0, len(regrets)):
       if min_regret > regrets[i]:
-        min_regret = regrets
-      sum_regret+= regrets[i]
+        min_regret = regrets[i]
+      sum_regret += regrets[i]
     sum_regret -= len(regrets) * min_regret
-
+    if sum_regret == 0:
+      if len(regrets) == 3:
+        return [0.5, 0, 0.5]
+      else:
+        return [1, 0]
     for i in range(0, len(regrets)):
       strategies.append((regrets[i] - min_regret)/sum_regret)
     return strategies
@@ -286,3 +321,31 @@ class Group36Player(BasePokerPlayer):
     info = [round_state["big_blind_pos"], encoded_card_strength, encoded_histories["preflop"],
             encoded_histories["flop"], encoded_histories["turn"], encoded_histories["river"]]
     return info
+
+  def is_me(self, round, encoded_history, histories):
+    num = 0
+    while encoded_history != 0:
+      encoded_history /= 4
+      num+= 1
+
+    if round == 2:
+      round_histories = histories["preflop"]
+      num += 2
+    elif round == 3:
+      round_histories = histories["flop"]
+    elif round == 4:
+      round_histories = histories["turn"]
+    else:
+      round_histories = histories["river"]
+    #print num
+    return round_histories[num]["uuid"] == self.uuid
+
+  def learn(self):
+    fo = open("learn.txt", "w")
+    pp = pprint.PrettyPrinter(indent=2, stream= fo)
+    with fo as out:
+      print >> fo, "-------------------------------------------"
+      pp.pprint(self.strategy)
+      pp.pprint(self.CF_value)
+      pp.pprint(self.regret)
+      pp.pprint(self.sum)
