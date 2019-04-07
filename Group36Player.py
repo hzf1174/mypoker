@@ -4,6 +4,7 @@ from pypokerengine.utils import card_utils
 
 import random as rand
 import pprint
+import json
 
 class Group36Player(BasePokerPlayer):
   CARD_STRENGTH_FIRST = {
@@ -14,10 +15,10 @@ class Group36Player(BasePokerPlayer):
   }
 
   CARD_STRENGTH_OTHERS = {
-    1: 0.2,
-    2: 0.4,
-    3: 0.6,
-    4: 0.8
+    1: 0.3,
+    2: 0.45,
+    3: 0.55,
+    4: 0.75
   }
 
   ACTION = {
@@ -29,12 +30,24 @@ class Group36Player(BasePokerPlayer):
   }
 
   def __init__(self):
+    '''
+    with open('jsonFileStrategy.json', 'r') as f:
+      self.strategy = json.load(f)
+    with open('jsonFileCF.json', 'r') as f:
+      self.CF_value = json.load(f)
+    with open('jsonFileRegret.json', 'r') as f:
+      self.regret = json.load(f)
+    with open('jsonFileSum.json', 'r') as f:
+      self.sum = json.load(f)
+        '''
+    self.strategy = {}
     self.CF_value = {}
     self.regret = {}
-    self.strategy = {}
     self.sum = {}
+    self.times = {}
     self.card_strength_squared = []
     self.real_hole_card = []
+    self.stack_history = []
     self.total_contribution = 1.0
     self.game_num = 0
 
@@ -126,7 +139,7 @@ class Group36Player(BasePokerPlayer):
       real_card = Card.from_str(card)
       real_community_card.append(real_card)
 
-    win_rate = card_utils.estimate_hole_card_win_rate(2000, 2, self.real_hole_card, real_community_card)
+    win_rate = card_utils.estimate_hole_card_win_rate(1000, 2, self.real_hole_card, real_community_card)
     print win_rate
     if round_state["street"] == "preflop":
       card_strength = self.calculate_card_strength(win_rate, True)
@@ -139,6 +152,12 @@ class Group36Player(BasePokerPlayer):
     pass
 
   def receive_round_result_message(self, winners, hand_info, round_state):
+    if round_state["seats"][0]["uuid"] == self.uuid:
+      stack = round_state["seats"][0]["stack"]
+    else:
+      stack = round_state["seats"][1]["stack"]
+    self.stack_history.append(stack)
+
     is_tied = len(winners) == 2
     is_winner = winners[0]["uuid"] == self.uuid
 
@@ -158,13 +177,14 @@ class Group36Player(BasePokerPlayer):
 
     if not self.sum.has_key(tuple_info):
       self.sum[tuple_info] = payoff
+      self.times[tuple_info] = 1
     else:
       self.sum[tuple_info] += payoff
+      self.times[tuple_info] += 1
 
-    self.CF_value[tuple_info] = self.sum[tuple_info] / (self.total_contribution * self.game_num)
+    self.CF_value[tuple_info] = self.sum[tuple_info] / (self.times[tuple_info])
 
     last_CF_value = self.CF_value[tuple_info]
-    last_card = info[1]
     check_list = [0, 0, 0, 0]
     for i in range(3, 6):
       if info[i] != 0:
@@ -180,6 +200,12 @@ class Group36Player(BasePokerPlayer):
           continue
         last_action = info[i] % 4
         info[i] = (info[i] - last_action) / 4
+
+        encoded_card_strength = 0
+        for j in range (0, i - 1):
+          encoded_card_strength = encoded_card_strength * 6 + self.card_strength_squared[j]
+
+        info[1] = encoded_card_strength
         #print info
 
         tuple_info = tuple(info)
@@ -188,7 +214,10 @@ class Group36Player(BasePokerPlayer):
         info_if_call = list(info)
         info_if_call[i] = info_if_call[i] * 4 + 1
         if check_list[i - 2] == -1:
-          info_if_call[1] = last_card
+          encoded_card_strength = 0
+          for j in range(0, i):
+            encoded_card_strength = encoded_card_strength * 6 + self.card_strength_squared[j]
+          info_if_call[1] = encoded_card_strength
         tuple_info_if_call = tuple(info_if_call)
         if not self.CF_value.has_key(tuple_info_if_call):
           self.CF_value[tuple_info_if_call] = 0
@@ -234,9 +263,6 @@ class Group36Player(BasePokerPlayer):
             self.strategy[tuple_info_raise] = strategies[2]
         if check_list[i - 2] == -1:
           check_list[i - 2] = 0
-        if info[i] == 0:
-          last_card = info[1]
-          info[1] = info[1] / 6
         break
 
     self.card_strength_squared = []
@@ -341,11 +367,35 @@ class Group36Player(BasePokerPlayer):
     return round_histories[num]["uuid"] == self.uuid
 
   def learn(self):
+    '''
+    jsObjStrategy = json.dumps(self.strategy)
+    jsObjCF = json.dumps(self.CF_value)
+    jsObjRegret = json.dumps(self.regret)
+    jsObjSum = json.dumps(self.sum)
+
+    fileObjectStrategy = open('jsonFileStrategy.json', 'w')
+    fileObjectCF = open('jsonFileCF.json', 'w')
+    fileObjectRegret = open('jsonFileRegret.json', 'w')
+    fileObjectSum = open('jsonFileSum.json', 'w')
+
+
+    fileObjectStrategy.write(jsObjStrategy)
+    fileObjectCF.write(jsObjCF)
+    fileObjectRegret.write(jsObjRegret)
+    fileObjectSum.write(jsObjSum)
+
+    fileObjectStrategy.close()
+    fileObjectCF.close()
+    fileObjectRegret.close()
+    fileObjectSum.close()
+'''
     fo = open("learn.txt", "w")
-    pp = pprint.PrettyPrinter(indent=2, stream= fo)
+    pp = pprint.PrettyPrinter(indent=2, stream=fo)
     with fo as out:
       print >> fo, "-------------------------------------------"
+      pp.pprint(self.stack_history)
       pp.pprint(self.strategy)
       pp.pprint(self.CF_value)
       pp.pprint(self.regret)
       pp.pprint(self.sum)
+      pp.pprint(self.times)
