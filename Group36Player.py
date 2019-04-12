@@ -343,7 +343,7 @@ class Group36Player(BasePokerPlayer):
     min_regret = regrets[0]
     for i in range(0, len(regrets)):
       sum_regret += regrets[i]
-      if regrets[i] > min_regret:
+      if regrets[i] < min_regret:
         min_regret = regrets[i]
     sum_regret -= min_regret * len(regrets)
     if sum_regret == 0:
@@ -404,11 +404,11 @@ class Group36Player(BasePokerPlayer):
     jsObjRegret = json.dumps(self.transfer_to_str(self.regret))
     jsObjSum = json.dumps(self.transfer_to_str(self.sum))
 
-    fileObjectStackHistory = open('StackHistroy.json', 'w')
-    fileObjectStrategy = open('Strategy.json', 'w')
-    fileObjectCF = open('CF.json', 'w')
-    fileObjectRegret = open('Regret.json', 'w')
-    fileObjectSum = open('Sum.json', 'w')
+    fileObjectStackHistory = open('StackHistroyNew1.json', 'w')
+    fileObjectStrategy = open('StrategyNew1.json', 'w')
+    fileObjectCF = open('CFNew1.json', 'w')
+    fileObjectRegret = open('RegretNew1.json', 'w')
+    fileObjectSum = open('SumNew1.json', 'w')
 
     fileObjectStackHistory.write(jsObjStackHistory)
     fileObjectStrategy.write(jsObjStrategy)
